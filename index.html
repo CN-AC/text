@@ -1,148 +1,158 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
-    <title>暴怒贪吃蛇-全平台嘲讽版V3.0</title>
+    <title>暴怒贪吃蛇-全平台嘲讽版V4.0</title>
     <style>
         /* 暴躁样式表 */
         #gameCanvas { border: 3px solid red; background: black; }
         #score { color: fuchsia; font-size: 40px; font-weight: bolder; }
         body { display: flex; flex-direction: column; align-items: center; background: #000; touch-action: none; }
         
-        /* 手机端优化 */
-        @media screen and (max-width: 600px) {
-            #gameCanvas { width: 300px !important; height: 300px !important; }
-            #score { font-size: 30px !important; }
+        /* 电脑端说明 */
+        #pcTips {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: lime;
+            font-size: 18px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 10px;
         }
 
-        /* 摇杆暴力美学 */
+        /* 手机端布局 */
         #joystickContainer {
             position: fixed;
             bottom: 100px;
+            left: 30px;
             width: 150px;
             height: 150px;
             background: rgba(0,0,0,0.5);
             border-radius: 50%;
             display: none;
         }
-        #joystickKnob {
-            width: 60px;
-            height: 60px;
-            background: #ff5555;
+        #boostBtn {
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            width: 150px;
+            height: 150px;
             border-radius: 50%;
-            position: absolute;
-            left: 45px;
-            top: 45px;
-            transition: transform 0.1s;
+            background: #44ff44;
+            display: none;
+            font-size: 32px;
         }
-        #mobileButtons {
+        #resetBtn {
             position: fixed;
             bottom: 20px;
             right: 20px;
-            display: none;
-            gap: 10px;
+            padding: 20px 30px;
+            font-size: 28px;
         }
-        .mobileBtn {
-            width: 80px;
-            height: 80px;
-            border-radius: 20px;
-            background: #444;
-            color: white;
-            font-size: 24px;
+
+        /* 游戏画布放大 */
+        #gameCanvas {
+            width: 600px;
+            height: 600px;
+        }
+        @media screen and (max-width: 600px) {
+            #gameCanvas { 
+                width: 90vw !important; 
+                height: 90vw !important; 
+            }
         }
     </style>
 </head>
 <body>
+    <div id="pcTips">
+        操作说明：<br>
+        ←↑→↓/WASD 移动<br>
+        Shift键加速<br>
+        空格键复活
+    </div>
     <div id="score">得分：<span id="scoreValue">0</span></div>
-    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
     
-    <!-- 手机端的屈辱控件 -->
+    <!-- 手机控件 -->
     <div id="joystickContainer">
         <div id="joystickKnob"></div>
     </div>
-    <div id="mobileButtons">
-        <button class="mobileBtn" id="resetBtn">复活</button>
-        <button class="mobileBtn" id="boostBtn">加速</button>
-    </div>
+    <button id="boostBtn">💨</button>
+    <button id="resetBtn">复活</button>
 
 <script>
 // 暴躁全局变量
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 const CELL_SIZE = 20;
-let snake = [{x:10, y:10}];
+const MAP_SIZE = 600; // 地图尺寸放大
+let snake = [{x:15, y:15}]; // 初始位置居中
 let food = null;
 let direction = 'right';
 let score = 0;
 let baseSpeed = 150;
 let currentSpeed = baseSpeed;
 let gameLoop = null;
-let isBoosting = false; // 加速状态
-const MAX_JOYSTICK_MOVE = 45; // 摇杆最大移动距离
+let isBoosting = false;
+let lastRenderTime = 0; // 解决闪烁问题
+const MAX_JOYSTICK_MOVE = 45;
 
-// 手机端羞辱初始化
+// 手机端初始化
 if(isMobile) {
-    const joystickContainer = document.getElementById('joystickContainer');
+    document.getElementById('joystickContainer').style.display = 'block';
+    document.getElementById('boostBtn').style.display = 'block';
+    document.getElementById('resetBtn').style.display = 'block';
+
+    // 优化后的摇杆逻辑
     const joystickKnob = document.getElementById('joystickKnob');
-    const mobileButtons = document.getElementById('mobileButtons');
-    joystickContainer.style.display = 'block';
-    mobileButtons.style.display = 'flex';
-
-    // 搓玻璃摇杆逻辑
     let touchId = null;
-    joystickContainer.addEventListener('touchstart', handleTouchStart, {passive: false});
-    joystickContainer.addEventListener('touchmove', handleTouchMove, {passive: false});
-    joystickContainer.addEventListener('touchend', resetJoystick);
+    let lastDirection = direction;
 
-    function handleTouchStart(e) {
+    document.getElementById('joystickContainer').addEventListener('touchstart', e => {
         e.preventDefault();
         touchId = e.changedTouches[0].identifier;
         updateJoystick(e.changedTouches[0]);
-    }
+    }, {passive: false});
 
-    function handleTouchMove(e) {
+    document.getElementById('joystickContainer').addEventListener('touchmove', e => {
         const touch = Array.from(e.changedTouches).find(t => t.identifier === touchId);
         touch && updateJoystick(touch);
-    }
+    }, {passive: false});
+
+    document.getElementById('joystickContainer').addEventListener('touchend', () => {
+        joystickKnob.style.transform = 'translate(0, 0)';
+    });
 
     function updateJoystick(touch) {
-        const rect = joystickContainer.getBoundingClientRect();
+        const rect = document.getElementById('joystickContainer').getBoundingClientRect();
         const centerX = rect.left + 75;
         const centerY = rect.top + 75;
         const deltaX = touch.clientX - centerX;
         const deltaY = touch.clientY - centerY;
-        const distance = Math.sqrt(deltaX**2 + deltaY**2);
         const angle = Math.atan2(deltaY, deltaX);
+        const distance = Math.min(Math.sqrt(deltaX**2 + deltaY**2), MAX_JOYSTICK_MOVE);
 
-        // 限制移动范围
-        const limitedDistance = Math.min(distance, MAX_JOYSTICK_MOVE);
-        const newX = Math.cos(angle) * limitedDistance;
-        const newY = Math.sin(angle) * limitedDistance;
+        joystickKnob.style.transform = `translate(
+            ${Math.cos(angle)*distance}px, 
+            ${Math.sin(angle)*distance}px
+        )`;
 
-        joystickKnob.style.transform = `translate(${newX}px, ${newY}px)`;
-
-        // 方向计算（防止反向自杀）
-        let newDirection;
-        if(Math.abs(deltaX) > Math.abs(deltaY)) {
-            newDirection = deltaX > 0 ? 'right' : 'left';
-        } else {
-            newDirection = deltaY > 0 ? 'down' : 'up';
-        }
-
-        // 禁止反向移动
-        const oppositeDirections = {
-            'up': 'down', 'down': 'up',
-            'left': 'right', 'right': 'left'
-        };
-        if(newDirection !== oppositeDirections[direction]) {
-            direction = newDirection;
+        // 方向判断（带死区）
+        const deadZone = 20;
+        if (Math.abs(deltaX) > deadZone || Math.abs(deltaY) > deadZone) {
+            const newDirection = Math.abs(deltaX) > Math.abs(deltaY) 
+                ? (deltaX > 0 ? 'right' : 'left')
+                : (deltaY > 0 ? 'down' : 'up');
+            
+            // 禁止反向操作
+            const opposite = {up:'down', down:'up', left:'right', right:'left'}[lastDirection];
+            if (newDirection !== opposite) {
+                direction = newDirection;
+                lastDirection = newDirection;
+            }
         }
     }
 
-    function resetJoystick() {
-        joystickKnob.style.transform = 'translate(0, 0)';
-    }
-
-    // 手机加速按钮
-    let boostTimer = null;
+    // 加速按钮
     document.getElementById('boostBtn').addEventListener('touchstart', () => {
         isBoosting = true;
         currentSpeed = baseSpeed / 2;
@@ -156,34 +166,34 @@ if(isMobile) {
         gameLoop = setInterval(update, currentSpeed);
     });
 
-    // 复活按钮
+    // 重置按钮
     document.getElementById('resetBtn').addEventListener('click', resetGame);
 }
 
-// 通用游戏逻辑
+// 游戏逻辑优化
 function spawnFood() {
     let attempts = 0;
     do {
         food = {
-            x: Math.floor(Math.random() * (400/CELL_SIZE)),
-            y: Math.floor(Math.random() * (400/CELL_SIZE))
+            x: Math.floor(Math.random() * (MAP_SIZE/CELL_SIZE)),
+            y: Math.floor(Math.random() * (MAP_SIZE/CELL_SIZE))
         };
-    } while(++attempts <=10 && snake.some(s => s.x === food.x && s.y === food.y));
+    } while(++attempts <=20 && snake.some(s => s.x === food.x && s.y === food.y));
 }
 
 function die() {
     clearInterval(gameLoop);
     const ctx = document.getElementById('gameCanvas').getContext('2d');
-    let alpha = 0;
-    const fade = setInterval(() => {
-        ctx.fillStyle = `rgba(255,0,0,${alpha})`;
-        ctx.fillRect(0, 0, 400, 400);
-        (alpha >= 1) ? clearInterval(fade) : alpha += 0.1;
-    }, 50);
+    ctx.fillStyle = 'rgba(255,0,0,0.5)';
+    ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
     alert('菜狗！得分：'+score);
 }
 
 function update() {
+    const now = Date.now();
+    if (now - lastRenderTime < currentSpeed/2) return; // 防止高频刷新
+    lastRenderTime = now;
+
     const head = {...snake[0]};
     switch(direction) {
         case 'up': head.y--; break;
@@ -192,11 +202,13 @@ function update() {
         case 'right': head.x++; break;
     }
 
-    // 碰撞检测
-    if(head.x < 0 || head.x >= 400/CELL_SIZE || 
-       head.y < 0 || head.y >= 400/CELL_SIZE ||
-       snake.some(s => s.x === head.x && s.y === head.y)) {
-        die(); 
+    // 碰撞检测优化
+    const isCollision = head.x < 0 || head.x >= MAP_SIZE/CELL_SIZE || 
+                      head.y < 0 || head.y >= MAP_SIZE/CELL_SIZE ||
+                      snake.slice(1).some(s => s.x === head.x && s.y === head.y);
+    
+    if(isCollision) {
+        die();
         return;
     }
 
@@ -211,36 +223,46 @@ function update() {
         snake.pop();
     }
 
-    // 渲染
+    // 双缓冲渲染解决闪烁
     const ctx = document.getElementById('gameCanvas').getContext('2d');
-    ctx.clearRect(0, 0, 400, 400);
+    ctx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
     ctx.fillStyle = 'lime';
-    snake.forEach(s => ctx.fillRect(s.x*CELL_SIZE, s.y*CELL_SIZE, CELL_SIZE-2, CELL_SIZE-2));
+    snake.forEach((s, i) => {
+        ctx.fillRect(
+            s.x*CELL_SIZE +2, 
+            s.y*CELL_SIZE +2, 
+            CELL_SIZE-4, 
+            CELL_SIZE-4
+        );
+    });
     ctx.fillStyle = 'yellow';
-    ctx.fillRect(food.x*CELL_SIZE, food.y*CELL_SIZE, CELL_SIZE-2, CELL_SIZE-2);
+    ctx.beginPath();
+    ctx.arc(
+        food.x*CELL_SIZE + CELL_SIZE/2,
+        food.y*CELL_SIZE + CELL_SIZE/2,
+        CELL_SIZE/2 -2, 0, Math.PI*2
+    );
+    ctx.fill();
 }
 
-// 键盘监听（电脑党的尊严）
-document.addEventListener('keydown', (e) => {
+// 电脑端控制优化
+document.addEventListener('keydown', e => {
     if(isMobile) return;
     const key = e.key.toLowerCase();
     
-    // 方向控制
-    const directions = {
+    // 方向控制（带防抖）
+    const dirMap = {
         'arrowup': 'up', 'w': 'up',
         'arrowdown': 'down', 's': 'down',
         'arrowleft': 'left', 'a': 'left',
         'arrowright': 'right', 'd': 'right'
     };
-    if(directions[key]) {
-        const opposite = {
-            'up': 'down', 'down': 'up',
-            'left': 'right', 'right': 'left'
-        }[directions[key]];
-        if(direction !== opposite) direction = directions[key];
+    if(dirMap[key]) {
+        const opposite = {up:'down', down:'up', left:'right', right:'left'}[direction];
+        if(dirMap[key] !== opposite) direction = dirMap[key];
     }
 
-    // 空格复活 + Shift加速
+    // 功能键
     if(key === ' ') resetGame();
     if(key === 'shift') {
         currentSpeed = baseSpeed / 2;
@@ -249,7 +271,7 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-document.addEventListener('keyup', (e) => {
+document.addEventListener('keyup', e => {
     if(!isMobile && e.key.toLowerCase() === 'shift') {
         currentSpeed = baseSpeed;
         clearInterval(gameLoop);
@@ -258,7 +280,7 @@ document.addEventListener('keyup', (e) => {
 });
 
 function resetGame() {
-    snake = [{x:10, y:10}];
+    snake = [{x:15, y:15}];
     direction = 'right';
     score = 0;
     baseSpeed = 150;
@@ -268,7 +290,7 @@ function resetGame() {
     gameLoop = setInterval(update, currentSpeed);
 }
 
-// 启动！
+// 启动游戏
 spawnFood();
 gameLoop = setInterval(update, currentSpeed);
 </script>
